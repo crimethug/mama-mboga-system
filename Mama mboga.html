@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mama Mboga Inventory</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--ink:#1b2a4a;--mu:#5b6b8a;--nav:#0f3b8c;--navt:#fff;--or:#f28c28;--bd:#d9e2f0;--bad:#c0392b;--soft:#e6eefb}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--card:#16213a;--ink:#e8eefb;--mu:#9fb0d0;--nav:#6c9bff;--navt:#0e1626;--bd:#2a3a5c;--bad:#ff8a7a;--soft:#1d2b4a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;padding-top:env(safe-area-inset-top,0)}
+#app{max-width:640px;margin:0 auto;padding:16px 16px 110px}
+h1{font-size:22px;margin:0}h2{font-size:18px;margin:18px 0 8px}
+.mu{color:var(--mu);font-size:14px}
+.hero{background:var(--nav);color:var(--navt);border-radius:16px;padding:18px;margin:14px 0}.hero b{font-size:32px;display:block}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.item{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px 10px;text-align:center;font:inherit;color:inherit;cursor:pointer;min-height:130px;position:relative}
+.item:active{transform:scale(.97)}.item .e{font-size:38px;display:block}.item .n{font-weight:700;font-size:17px;display:block;margin-top:4px}.item .q{font-size:14px;color:var(--mu)}
+.item.low{border:2px solid var(--or)}.item.out{opacity:.55}
+.tag{position:absolute;top:8px;right:8px;background:var(--or);color:#1b2a4a;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button.b{background:var(--nav);color:var(--navt);border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}
+button.g{background:var(--soft);color:var(--ink);border:0;border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+button.r{background:none;color:var(--bad);border:1px solid var(--bad);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+input{font:inherit;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--ink);width:100%}
+.f{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.bar{height:14px;background:var(--nav);border-radius:8px;margin-top:8px}
+.sms{background:var(--soft);border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:14px}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--bd);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0))}
+nav button{flex:1;background:none;border:0;font:inherit;color:var(--mu);padding:8px 2px;cursor:pointer;font-size:14px}
+nav button span{display:block;font-size:22px}nav button.on{color:var(--nav);font-weight:700}
+#toast{position:fixed;left:16px;right:16px;bottom:96px;max-width:608px;margin:0 auto;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;opacity:0;pointer-events:none;transition:opacity .25s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav id="nav"></nav>
+<div id="toast"></div>
+
+<script>
+/* ========== LOCAL STORAGE BACKEND ========== */
+const KEY = "mamaMboga_v1";
+
+function loadState() {
+  const raw = localStorage.getItem(KEY);
+  if (raw) return JSON.parse(raw);
+
+  // Default starter data
+  return {
+    items: [
+      { id: 1, name: "Tomato", emoji: "🍅", price: 20, qty: 30, min: 5 },
+      { id: 2, name: "Onion",  emoji: "🧅", price: 15, qty: 40, min: 8 },
+      { id: 3, name: "Kale",   emoji: "🥬", price: 10, qty: 25, min: 5 },
+      { id: 4, name: "Potato", emoji: "🥔", price: 30, qty: 20, min: 4 }
+    ],
+    sales: [],          // {id, itemId, price, t}
+    sms: [],            // {message, status, t}
+    phone: "",
+    nextId: 5,
+    nextSaleId: 1
+  };
+}
+
+function saveState(state) {
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+let D = loadState();
+let tab = "sell";
+let editing = null;
+let sure = null;
+
+/* ========== HELPERS ========== */
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function toast(msg) {
+  const x = $("toast");
+  x.textContent = msg;
+  x.className = "on";
+  clearTimeout(toast.h);
+  toast.h = setTimeout(() => x.className = "", 2800);
+}
+function now() { return Date.now(); }
+
+/* ========== BUSINESS LOGIC ========== */
+function getReport() {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const weekStart = now() - 7 * 24 * 60 * 60 * 1000;
+
+  let todayTotal = 0, todayCount = 0, weekTotal = 0;
+  const soldMap = {};
+
+  D.sales.forEach(s => {
+    if (s.t >= todayStart.getTime()) {
+      todayTotal += s.price;
+      todayCount++;
+    }
+    if (s.t >= weekStart) {
+      weekTotal += s.price;
+      soldMap[s.itemId] = (soldMap[s.itemId] || 0) + 1;
+    }
+  });
+
+  const best = Object.entries(soldMap)
+    .map(([id, sold]) => {
+      const item = D.items.find(i => i.id == id);
+      return item ? { name: item.name, sold, left: item.qty } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.sold - a.sold);
+
+  const stockUp = best.filter(b => b.left <= 10).slice(0, 5);
+
+  return { todayTotal, todayCount, weekTotal, best, stockUp };
+}
+
+function addSMS(message, status = "simulated") {
+  D.sms.unshift({ message, status, t: now() });
+  if (D.sms.length > 30) D.sms.length = 30;
+}
+
+/* ========== ACTIONS ========== */
+function sell(id) {
+  const item = D.items.find(i => i.id === id);
+  if (!item) return toast("Item not found");
+  if (item.qty <= 0) return toast(item.name + " is out of stock");
+
+  item.qty--;
+  const sale = {
+    id: D.nextSaleId++,
+    itemId: id,
+    price: item.price,
+    t: now()
+  };
+  D.sales.unshift(sale);
+
+  let alert = null;
+  if (item.qty === 0) {
+    alert = "finished";
+    addSMS(`${item.name} has finished. Please restock.`);
+  } else if (item.qty <= item.min) {
+    alert = "low";
+    addSMS(`Low stock: only ${item.qty} ${item.name} left.`);
+  }
+
+  saveState(D);
+  const msg = alert === "finished"
+    ? item.name + " has finished. SMS sent."
+    : alert === "low"
+      ? "Low stock! SMS sent for " + item.name + "."
+      : "Sold 1 " + item.name + " for KSh " + item.price;
+  toast(msg);
+  draw();
+}
+
+function undo() {
+  if (!D.sales.length) return toast("No sales to undo");
+  const last = D.sales.shift();
+  const item = D.items.find(i => i.id === last.itemId);
+  if (item) item.qty++;
+  saveState(D);
+  toast("Last sale undone");
+  draw();
+}
+
+function restock(id, n) {
+  const item = D.items.find(i => i.id === id);
+  if (!item) return;
+  item.qty += n;
+  saveState(D);
+  toast("Added " + n);
+  draw();
+}
+
+function del(id) {
+  if (sure !== id) {
+    sure = id;
+    draw();
+    toast("Tap Delete again to confirm");
+    return;
+  }
+  sure = null;
+  D.items = D.items.filter(i => i.id !== id);
+  saveState(D);
+  toast("Item deleted");
+  draw();
+}
+
+function edit(id) {
+  editing = id;
+  draw();
+  window.scrollTo(0, 0);
+}
+
+function saveItem() {
+  const name = $("fn").value.trim();
+  const emoji = $("fe").value.trim() || "🛒";
+  const price = Number($("fp").value) || 0;
+  const qty = Number($("fq").value) || 0;
+  const min = Number($("fm").value) || 5;
+
+  if (!name) return toast("Name is required");
+
+  if (editing) {
+    const item = D.items.find(i => i.id === editing);
+    if (item) {
+      item.name = name;
+      item.emoji = emoji;
+      item.price = price;
+      item.qty = qty;
+      item.min = min;
+    }
+  } else {
+    D.items.push({
+      id: D.nextId++,
+      name, emoji, price, qty, min
+    });
+  }
+  editing = null;
+  saveState(D);
+  toast("Item saved");
+  draw();
+}
+
+function savePhone() {
+  D.phone = $("ph").value.trim();
+  saveState(D);
+  toast("Phone number saved");
+  draw();
+}
+
+function weekly() {
+  const R = getReport();
+  if (R.weekTotal === 0) {
+    toast("No sales this week yet");
+    return;
+  }
+  const msg = `Mama Mboga weekly: KSh ${R.weekTotal.toLocaleString()} • Top: ${R.best.slice(0,3).map(b=>b.name).join(", ")}`;
+  addSMS(msg, "simulated");
+  saveState(D);
+  toast("Weekly SMS saved (test mode)");
+  draw();
+}
+
+function go(t) {
+  tab = t;
+  sure = null;
+  draw();
+  window.scrollTo(0, 0);
+}
+
+/* ========== RENDER ========== */
+function draw() {
+  const R = getReport();
+  let h = "";
+
+  if (tab === "sell") {
+    h = `<h1>Mama Mboga</h1>
+    <div class="hero">
+      <span>Today’s sales</span>
+      <b>KSh ${R.todayTotal.toLocaleString()}</b>
+      <span>${R.todayCount} items sold</span>
+    </div>
+    <div class="row">
+      <span class="mu">Tap an item after each sale</span>
+      <button class="g" onclick="undo()">Undo</button>
+    </div>
+    <h2></h2>
+    <div class="grid">
+      ${D.items.map(i => {
+        const s = i.qty <= 0 ? "out" : i.qty <= i.min ? "low" : "";
+        return `<button class="item ${s}" onclick="sell(${i.id})">
+          ${s ? `<span class="tag">${s === "out" ? "OUT" : "LOW"}</span>` : ""}
+          <span class="e">${esc(i.emoji)}</span>
+          <span class="n">${esc(i.name)}</span>
+          <span class="q">KSh ${i.price} • ${i.qty} left</span>
+        </button>`;
+      }).join("")}
+    </div>`;
+  }
+  else if (tab === "items") {
+    const e = D.items.find(i => i.id === editing) || { name: "", emoji: "", price: "", qty: "", min: "" };
+    h = `<h1>Items</h1>
+    <div class="card">
+      <b>${editing ? "Edit item" : "Add an item"}</b>
+      <div class="f">
+        <input id="fn" placeholder="Name" value="${esc(e.name)}">
+        <input id="fe" placeholder="Emoji" value="${esc(e.emoji)}">
+        <input id="fp" type="number" inputmode="numeric" placeholder="Price (KSh)" value="${e.price}">
+        <input id="fq" type="number" inputmode="numeric" placeholder="Quantity" value="${e.qty}">
+        <input id="fm" type="number" inputmode="numeric" placeholder="Remind me at" value="${e.min}">
+      </div>
+      <div class="row">
+        <button class="b" onclick="saveItem()">Save</button>
+        ${editing ? `<button class="g" onclick="editing=null;draw()">Cancel</button>` : ""}
+      </div>
+    </div>
+    ${D.items.map(i => `
+      <div class="card">
+        <b>${esc(i.emoji)} ${esc(i.name)}</b>
+        <div class="mu">KSh ${i.price} • ${i.qty} left • SMS at ${i.min}</div>
+        <div class="row" style="margin-top:10px">
+          <span>
+            <button class="g" onclick="restock(${i.id},5)">+5</button>
+            <button class="g" onclick="restock(${i.id},10)">+10</button>
+          </span>
+          <span>
+            <button class="g" onclick="edit(${i.id})">Edit</button>
+            <button class="r" onclick="del(${i.id})">${sure === i.id ? "Sure?" : "Delete"}</button>
+          </span>
+        </div>
+      </div>`).join("")}`;
+  }
+  else { // week
+    const mx = R.best.length ? R.best[0].sold : 1;
+    h = `<h1>This week</h1>
+    <div class="hero">
+      <span>Sales in the last 7 days</span>
+      <b>KSh ${R.weekTotal.toLocaleString()}</b>
+    </div>
+    ${R.stockUp.length
+      ? `<div class="card"><b>What to stock up on</b><div>${R.stockUp.map(b => esc(b.name) + " (" + b.left + " left)").join(", ")}</div></div>`
+      : `<div class="card mu">No sales yet. Make some sales and your best sellers will show here.</div>`}
+    ${R.best.map((b, i) => `
+      <div class="card">
+        <div class="row"><b>${i + 1}. ${esc(b.name)}</b><span>${b.sold} sold</span></div>
+        <div class="bar" style="width:${Math.max(6, b.sold / mx * 100)}%"></div>
+      </div>`).join("")}
+    <button class="b" onclick="weekly()">Send me this by SMS</button>
+    <h2>SMS reminders</h2>
+    <div class="card">
+      <b>My phone number</b>
+      <div class="f">
+        <input id="ph" type="tel" inputmode="tel" placeholder="07XX XXX XXX" value="${esc(D.phone)}">
+        <button class="b" onclick="savePhone()">Save</button>
+      </div>
+      <div class="mu">Test mode: messages are saved below but not sent.</div>
+    </div>
+    ${D.sms.map(s => `
+      <div class="sms">${esc(s.message)}
+        <div class="mu">${new Date(s.t).toLocaleString()} • ${esc(s.status)}</div>
+      </div>`).join("")}`;
+  }
+
+  $("app").innerHTML = h;
+  $("nav").innerHTML = [
+    ["sell", "🛒", "Sell"],
+    ["items", "📦", "Items"],
+    ["week", "📊", "This week"]
+  ].map(x =>
+    `<button class="${tab === x[0] ? "on" : ""}" onclick="go('${x[0]}')">
+      <span>${x[1]}</span>${x[2]}
+    </button>`
+  ).join("");
+}
+
+// Start the app
+draw();
+</script>
+</body>
+</html>
